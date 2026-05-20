@@ -1,0 +1,6 @@
+.DS_Store
+.agents/skills
+
+# Build outputs
+/cmd/edvat/edvat
+/cmd/edvat/main

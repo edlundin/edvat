@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>edvat Architecture Guide</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f7f3ea;
+      --panel: #fffaf0;
+      --ink: #201c16;
+      --muted: #695f51;
+      --line: #d8c9af;
+      --accent: #8b3f1f;
+      --accent-2: #1f5f5b;
+      --code: #272018;
+      --code-bg: #efe3cd;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #17130f;
+        --panel: #211b15;
+        --ink: #f1e7d6;
+        --muted: #c2b39d;
+        --line: #4a3d2e;
+        --accent: #f0a36f;
+        --accent-2: #77c7bd;
+        --code: #f8ead5;
+        --code-bg: #30271d;
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font: 16px/1.55 Georgia, "Times New Roman", serif;
+      background: radial-gradient(circle at top left, rgba(139,63,31,.12), transparent 28rem), var(--bg);
+      color: var(--ink);
+    }
+    header {
+      border-bottom: 1px solid var(--line);
+      padding: 3rem min(7vw, 5rem) 2rem;
+    }
+    main {
+      display: grid;
+      grid-template-columns: minmax(13rem, 18rem) minmax(0, 1fr);
+      gap: 2rem;
+      padding: 2rem min(7vw, 5rem) 5rem;
+      max-width: 120rem;
+      margin: 0 auto;
+    }
+    nav {
+      position: sticky;
+      top: 1rem;
+      align-self: start;
+      border: 1px solid var(--line);
+      border-radius: 1rem;
+      padding: 1rem;
+      background: color-mix(in srgb, var(--panel) 88%, transparent);
+    }
+    nav a {
+      display: block;
+      color: var(--accent-2);
+      text-decoration: none;
+      padding: .35rem .25rem;
+      border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+    }
+    nav a:last-child { border-bottom: 0; }
+    section {
+      border: 1px solid var(--line);
+      border-radius: 1.25rem;
+      background: color-mix(in srgb, var(--panel) 92%, transparent);
+      padding: clamp(1rem, 3vw, 2rem);
+      margin-bottom: 1.5rem;
+    }
+    h1, h2, h3 { line-height: 1.1; margin: 0 0 1rem; }
+    h1 { font-size: clamp(2.2rem, 6vw, 5rem); letter-spacing: -.04em; }
+    h2 { font-size: clamp(1.6rem, 3vw, 2.4rem); color: var(--accent); }
+    h3 { font-size: 1.2rem; color: var(--accent-2); margin-top: 1.25rem; }
+    p { margin: 0 0 1rem; }
+    code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--code);
+      background: var(--code-bg);
+    }
+    code { padding: .08rem .25rem; border-radius: .25rem; }
+    pre {
+      overflow-x: auto;
+      padding: 1rem;
+      border-radius: .75rem;
+      border: 1px solid var(--line);
+    }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    th, td { text-align: left; vertical-align: top; padding: .65rem; border-bottom: 1px solid var(--line); }
+    th { color: var(--accent); }
+    .lead { font-size: 1.25rem; max-width: 70rem; color: var(--muted); }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: 1rem; }
+    .card { border: 1px solid var(--line); border-radius: .9rem; padding: 1rem; background: color-mix(in srgb, var(--bg) 55%, var(--panel)); }
+    .flow { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; }
+    .tag { display: inline-block; border: 1px solid var(--line); border-radius: 99rem; padding: .15rem .55rem; margin: .15rem; color: var(--accent-2); }
+    @media (max-width: 850px) {
+      main { display: block; padding: 1rem; }
+      nav { position: static; margin-bottom: 1rem; }
+      header { padding: 2rem 1rem; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>edvat Architecture Guide</h1>
+    <p class="lead">A reader-friendly tour of this Go codebase: what the tool does, where the code lives, the planning modes, and how Atlas, edvat-owned PostgreSQL object families, seed data, and migration-file writing interact.</p>
+  </header>
+  <main>
+    <nav aria-label="Guide navigation">
+      <a href="#what">What It Is</a>
+      <a href="#layout">Repository Layout</a>
+      <a href="#commands">Commands</a>
+      <a href="#config">Project Config</a>
+      <a href="#pipeline">Planning Pipeline</a>
+      <a href="#modes">Modes And Flags</a>
+      <a href="#families">Object Families</a>
+      <a href="#seed">Seed Data</a>
+      <a href="#ordering">Ordering And Safety</a>
+      <a href="#tests">Tests</a>
+      <a href="#reading">How To Read The Code</a>
+    </nav>
+    <div>
+      <section id="what">
+        <h2>What It Is</h2>
+        <p><strong>edvat</strong> is a Go command-line migration planner for PostgreSQL projects using Atlas HCL. Atlas OSS already knows how to parse, diff, and plan core PostgreSQL schema objects such as schemas, tables, columns, constraints, indexes, and enums. edvat adds planning support for PostgreSQL object families that are not delegated to Atlas in this repository, such as extensions, functions, policies, permissions, triggers, views, domains, sequences, roles, users, and seed data.</p>
+        <p>The output is an Atlas-style migration directory: timestamped <code>.up.sql</code> files, optional <code>.down.sql</code> files when statements have reverse SQL, and an <code>atlas.sum</code> checksum file.</p>
+      </section>
+
+      <section id="layout">
+        <h2>Repository Layout</h2>
+        <table>
+          <thead><tr><th>Path</th><th>Role</th></tr></thead>
+          <tbody>
+            <tr><td><code>cmd/edvat</code></td><td>CLI entry point and command parsing. This is where <code>capabilities</code>, <code>migrate diff</code>, and <code>migrate hash</code> start.</td></tr>
+            <tr><td><code>internal/project</code></td><td>Loads an Atlas HCL project config, selects an <code>env</code>, resolves schema paths, migration directory, seed mode, and seed SQL paths.</td></tr>
+            <tr><td><code>internal/baseatlas</code></td><td>Thin wrapper over Atlas OSS. It loads desired Atlas schema, inspects current database schema, asks Atlas for diffs, and asks Atlas to plan SQL.</td></tr>
+            <tr><td><code>internal/migrationplan</code></td><td>Orchestrates the whole migration plan: desired state, optional current state, Atlas diff, edvat object-family diffs, seed statements, ordering, and destructive-statement gating.</td></tr>
+            <tr><td><code>internal/pgext</code></td><td>One file per edvat-owned PostgreSQL object family. Most files follow the same parse, inspect, diff, and SQL-generation pattern.</td></tr>
+            <tr><td><code>internal/seed</code></td><td>Parses seed <code>data</code> blocks and SQL seed files; generates <code>INSERT</code>, <code>UPSERT</code>, or <code>SYNC</code> statements.</td></tr>
+            <tr><td><code>internal/migratedir</code></td><td>Writes migration files, writes <code>atlas.sum</code>, and can replay existing migration SQL into a dev database before inspection.</td></tr>
+            <tr><td><code>internal/capabilities</code></td><td>Static capability table printed by <code>edvat capabilities</code>.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="commands">
+        <h2>Commands</h2>
+        <div class="cards">
+          <div class="card">
+            <h3><code>edvat capabilities</code></h3>
+            <p>Prints every object family, who owns it, and whether support is delegated, experimental, or unsupported.</p>
+          </div>
+          <div class="card">
+            <h3><code>edvat migrate diff &lt;name&gt;</code></h3>
+            <p>Builds a migration plan and writes a timestamped <code>&lt;name&gt;.up.sql</code> file into the configured migration directory.</p>
+          </div>
+          <div class="card">
+            <h3><code>edvat migrate hash</code></h3>
+            <p>Recomputes the Atlas checksum file for the configured migration directory.</p>
+          </div>
+        </div>
+        <pre><code>edvat migrate diff add_billing --env local --config atlas.hcl
+      </section>
+
+      <section id="config">
+        <h2>Project Config</h2>
+        <p><code>internal/project.LoadEnv</code> reads an Atlas HCL config file and selects one <code>env</code>. The env supplies the schema source files, the migration directory, and optional seed settings.</p>
+        <pre><code>data "hcl_schema" "app" {
+  paths = ["schema.pg.hcl", "security.pg.hcl"]
+}
+
+env "local" {
+  schema { src = data.hcl_schema.app.url }
+  migration { dir = "migrations" }
+
+  data {
+    mode = UPSERT
+    src = ["seed.sql"]
+  }
+}</code></pre>
+        <p>Supported schema source forms are a string path, a list of paths, or <code>data.hcl_schema.&lt;name&gt;.url</code>. Paths are normalized relative to the config file directory. Seed mode defaults to <code>INSERT</code> when no mode is configured.</p>
+      </section>
+
+      <section id="pipeline">
+        <h2>Planning Pipeline</h2>
+        <p>The central workflow is <code>migrationplan.Build</code>. It creates a desired state from the configured files, optionally creates a current state from a dev database, produces SQL from several sources, and then orders and validates the result.</p>
+        <pre class="flow"><code>CLI migrate diff
+  -> project.LoadEnv(config, env)
+  -> migrationplan.Build(cfg, options)
+     -> loadDesiredMigrationState
+        -> baseatlas.LoadDesired     (Atlas-owned schema)
+        -> pgext.Parse*Files         (edvat-owned object families)
+     -> optionally migratedir.ReplayURL
+     -> optionally inspectCurrentMigrationState
+        -> baseatlas.InspectCurrent  (Atlas-owned current schema)
+        -> pgext.Inspect*URL         (edvat-owned current state)
+     -> baseatlas.Diff + baseatlas.PlanSQL
+     -> appendPgExtStatements
+     -> loadSeedStatements
+     -> suppressManagedExclusionConstraintDrops
+     -> orderMigrationStatements
+     -> destructiveFindings gate
+  -> migratedir.Writer.Write
+     -> write .up.sql, optional .down.sql, atlas.sum</code></pre>
+        <h3>The Important Split</h3>
+        <p><code>baseatlas.LoadDesired</code> deliberately strips edvat-owned HCL blocks before handing source text to Atlas. That means a single schema file can contain normal Atlas objects and edvat-only blocks. Atlas sees what it owns; edvat separately parses the blocks it owns.</p>
+      </section>
+
+      <section id="modes">
+        <h2>Modes And Flags</h2>
+        <table>
+          <thead><tr><th>Mode or Flag</th><th>Effect</th></tr></thead>
+          <tbody>
+            <tr><td>No <code>--dev-url</code></td><td>Plans from an empty current state. This is useful for initial migrations or generating all desired objects from scratch.</td></tr>
+            <tr><td><code>--dev-url</code></td><td>Inspects a live PostgreSQL database before diffing. Atlas-owned schema and edvat-owned object families are both inspected.</td></tr>
+            <tr><td><code>--replay-migrations</code></td><td>Requires <code>--dev-url</code>. Applies existing migration SQL files from the migration directory to the dev database before inspection, so the diff starts from replayed migration history.</td></tr>
+            <tr><td><code>--manage-roles</code></td><td>Enables role diffing and DDL. Desired <code>role</code> blocks are rejected without this flag because role changes are security-sensitive.</td></tr>
+            <tr><td><code>--manage-users</code></td><td>Enables user diffing and DDL. Desired <code>user</code> blocks are rejected without this flag. Passwords are unsupported/rejected by the user-family implementation.</td></tr>
+            <tr><td><code>--allow-destructive</code></td><td>Allows a plan containing statements marked destructive. Without it, destructive findings stop the command and tell you to rerun after review.</td></tr>
+            <tr><td>Seed <code>INSERT</code></td><td>Generates <code>INSERT ... ON CONFLICT (...) DO NOTHING</code> for each desired row.</td></tr>
+            <tr><td>Seed <code>UPSERT</code></td><td>Generates <code>INSERT ... ON CONFLICT (...) DO UPDATE SET ...</code> where non-key columns can change.</td></tr>
+            <tr><td>Seed <code>SYNC</code></td><td>Without current-row inspection, emits upserts plus a delete for desired keys not present. With <code>--dev-url</code>, inspects current rows and emits targeted inserts, updates, and deletes.</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section id="families">
+        <h2>Object Families</h2>
+        <p>The capability model has two owners. <span class="tag">atlas_oss</span> families are delegated to Atlas. <span class="tag">edvat</span> families are parsed, inspected, diffed, and planned by code in <code>internal/pgext</code> or <code>internal/seed</code>.</p>
+        <h3>Delegated To Atlas</h3>
+        <p><span class="tag">schema</span><span class="tag">table</span><span class="tag">enum</span></p>
+        <h3>edvat-Owned Families</h3>
+        <p><span class="tag">extension</span><span class="tag">domain</span><span class="tag">composite</span><span class="tag">range</span><span class="tag">collation</span><span class="tag">cast</span><span class="tag">sequence</span><span class="tag">partition</span><span class="tag">exclusion</span><span class="tag">view</span><span class="tag">materialized view</span><span class="tag">function</span><span class="tag">procedure</span><span class="tag">aggregate</span><span class="tag">trigger</span><span class="tag">event trigger</span><span class="tag">policy</span><span class="tag">permission</span><span class="tag">default permission</span><span class="tag">server</span><span class="tag">foreign table</span><span class="tag">user mapping</span><span class="tag">role</span><span class="tag">user</span><span class="tag">data</span></p>
+        <p>Most pgext files follow this shape: define a state struct, parse HCL blocks from schema source files, optionally inspect current PostgreSQL catalogs, diff current versus desired maps, and return <code>baseatlas.Statement</code> values.</p>
+        <pre><code>// Typical family pattern inside internal/pgext/&lt;family&gt;.go
+type Family struct { ... }
+type FamilyState map[string]Family
+
+func ParseFamilyFiles(paths []string) (FamilyState, error)
+func InspectFamiliesURL(ctx context.Context, url string) (FamilyState, error)
+func DiffFamilies(current, desired FamilyState) []baseatlas.Statement</code></pre>
+      </section>
+
+      <section id="seed">
+        <h2>Seed Data</h2>
+        <p>Seed data comes from two places. HCL <code>data</code> blocks can be embedded in schema source files. Raw SQL seed files can be listed in the env <code>data.src</code> setting.</p>
+        <pre><code>data {
+  table = schema.public.countries
+  key = [code]
+  rows = [
+    { code = "US", name = "United States" },
+    { code = "SE", name = "Sweden" },
+  ]
+}</code></pre>
+        <p>If a <code>data</code> block omits <code>key</code>, edvat tries to derive key columns from the desired Atlas realm primary key. If it cannot find key columns, seed SQL generation fails because conflict handling and synchronization need stable identity.</p>
+        <p>SQL seed files are split on semicolons while respecting single-quoted strings and <code>$$</code> dollar-quoted blocks. Each split statement is appended as a seed statement.</p>
+      </section>
+
+      <section id="ordering">
+        <h2>Ordering And Safety</h2>
+        <p><code>migrationplan.orderMigrationStatements</code> applies a stable ordering to reduce dependency problems. The rough order is schemas, extensions, types/domains/collations/sequences, tables, alters, indexes, casts, routines, aggregates, foreign-data objects, triggers, policies/grants, views, seed data, then drops near the end.</p>
+        <p>There are extra passes for dependency-sensitive cases:</p>
+        <ul>
+          <li>Tables are topologically ordered by <code>REFERENCES</code> clauses where possible.</li>
+          <li>Functions can be moved before tables that reference them.</li>
+          <li>Created tables, functions, and views can be reordered when same-order objects reference each other.</li>
+          <li>Atlas-generated drops for exclusion constraints managed by edvat are suppressed when the desired edvat exclusion exists.</li>
+        </ul>
+        <p>Destructive statements are detected after ordering. If any destructive findings exist, the command fails unless <code>--allow-destructive</code> is present. This is a review gate, not a SQL parser.</p>
+      </section>
+
+      <section id="tests">
+        <h2>Tests</h2>
+        <p>The repository is heavily test-oriented. Almost every object-family file has a matching <code>_test.go</code>. There are also CLI tests, migration directory tests, seed tests, capability tests, and integration tests using PostgreSQL testcontainers.</p>
+        <pre><code>go test ./...</code></pre>
+        <p>When changing object-family behavior, start with the matching file in <code>internal/pgext</code> and its test. When changing orchestration or ordering, start in <code>internal/migrationplan</code>.</p>
+      </section>
+
+      <section id="reading">
+        <h2>How To Read The Code</h2>
+        <ol>
+          <li>Start at <code>cmd/edvat/main.go</code> to understand the public CLI and flags.</li>
+          <li>Read <code>internal/project/project.go</code> to understand how <code>atlas.hcl</code> is decoded into <code>EnvConfig</code>.</li>
+          <li>Read <code>internal/migrationplan/plan.go</code> for the orchestration sequence.</li>
+          <li>Read <code>internal/migrationplan/state.go</code> to see every desired/current state family and where diffs are appended.</li>
+          <li>Read <code>internal/baseatlas/baseatlas.go</code> to understand the Atlas boundary and edvat-block stripping.</li>
+          <li>Read one simple pgext family, such as <code>extension.go</code>, then one routine family, such as <code>function.go</code>, to learn the common parse/inspect/diff pattern.</li>
+          <li>Read <code>internal/seed/seed.go</code> for the seed modes and row-diff logic.</li>
+          <li>Read <code>internal/migrationplan/dependencies.go</code> if generated statement order surprises you.</li>
+        </ol>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

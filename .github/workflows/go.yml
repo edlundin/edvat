@@ -1,0 +1,30 @@
+name: Go
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Lint
+        run: |
+          test -z "$(gofmt -l $(find . -name '*.go' -not -path './.git/*'))"
+          go vet ./...
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        run: go build -o dist/edvat ./cmd/edvat
+
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/')
+        run: GOPROXY=proxy.golang.org go list -m github.com/edlundin/edvat@${GITHUB_REF_NAME}
