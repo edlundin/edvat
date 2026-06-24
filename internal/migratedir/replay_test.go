@@ -47,6 +47,23 @@ func TestReplayAppliesSQLFilesInNameOrder(t *testing.T) {
 	}
 }
 
+func TestReplayTreatsPublicSchemaAsImplicit(t *testing.T) {
+	dir := t.TempDir()
+	writeMigration(t, dir, "001_init.sql", `CREATE SCHEMA "public";
+CREATE EXTENSION "pgcrypto" WITH SCHEMA "public";`)
+
+	exec := &fakeExec{}
+	_, err := Replay(context.Background(), exec, dir)
+	if err != nil {
+		t.Fatalf("Replay() error = %v", err)
+	}
+	want := `CREATE SCHEMA IF NOT EXISTS "public";
+CREATE EXTENSION "pgcrypto" WITH SCHEMA "public";`
+	if len(exec.statements) != 1 || exec.statements[0] != want {
+		t.Fatalf("statement = %#v, want %#v", exec.statements, want)
+	}
+}
+
 func TestReplayMissingDirIsNoop(t *testing.T) {
 	applied, err := Replay(context.Background(), &fakeExec{}, filepath.Join(t.TempDir(), "missing"))
 	if err != nil {

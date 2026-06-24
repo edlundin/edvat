@@ -993,6 +993,52 @@ trigger "users_touch" {
 	assertBefore(t, got, `CREATE OR REPLACE PROCEDURE`, `CREATE TRIGGER`)
 }
 
+func TestMigrateDiffDoesNotWriteMigrationWhenPlanIsEmpty(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "atlas.hcl")
+	writeTestFile(t, configPath, `
+env "local" {
+  schema { src = "schema.pg.hcl" }
+  migration { dir = "migrations" }
+}
+`)
+	writeTestFile(t, filepath.Join(dir, "schema.pg.hcl"), `schema "public" {}`)
+
+	if err := migrateDiff([]string{"empty", "--config", configPath, "--env", "local"}); err != nil {
+		t.Fatalf("migrateDiff() error = %v", err)
+	}
+	entries, err := os.ReadDir(filepath.Join(dir, "migrations"))
+	if err != nil && !os.IsNotExist(err) {
+		t.Fatalf("read migrations: %v", err)
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".sql") {
+			t.Fatalf("wrote migration for empty plan: %s", entry.Name())
+		}
+	}
+}
+
+func TestMigrateDiffRequiresDevURLWhenMigrationsExist(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "atlas.hcl")
+	writeTestFile(t, configPath, `
+env "local" {
+  schema { src = "schema.pg.hcl" }
+  migration { dir = "migrations" }
+}
+`)
+	writeTestFile(t, filepath.Join(dir, "schema.pg.hcl"), `schema "public" {}`)
+	if err := os.Mkdir(filepath.Join(dir, "migrations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(dir, "migrations", "20260101000000_init.up.sql"), `CREATE EXTENSION "pgcrypto" WITH SCHEMA "public";`)
+
+	err := migrateDiff([]string{"voleo", "--config", configPath, "--env", "local"})
+	if err == nil || !strings.Contains(err.Error(), "--dev-url is required when migration dir is not empty") {
+		t.Fatalf("migrateDiff() error = %v, want --dev-url requirement", err)
+	}
+}
+
 func TestMigrateDiffRejectsInvalidDefaultPermissionPrivilege(t *testing.T) {
 	dir := t.TempDir()
 	configPath := filepath.Join(dir, "atlas.hcl")

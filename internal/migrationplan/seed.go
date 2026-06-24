@@ -2,6 +2,7 @@ package migrationplan
 
 import (
 	"context"
+	"strings"
 
 	"github.com/edlundin/edvat/internal/baseatlas"
 	"github.com/edlundin/edvat/internal/project"
@@ -14,7 +15,11 @@ func loadSeedStatements(ctx context.Context, cfg project.EnvConfig, desired *sch
 	var currentRows seed.CurrentRows
 	if devURL != "" {
 		currentRows = func(ctx context.Context, table string, columns []string) ([]seed.Row, error) {
-			return seed.InspectRowsURL(ctx, devURL, table, columns)
+			rows, err := seed.InspectRowsURL(ctx, devURL, table, columns)
+			if err != nil && strings.Contains(err.Error(), "does not exist") {
+				return nil, nil
+			}
+			return rows, err
 		}
 	}
 	return seed.Plan(ctx, seed.PlanConfig{

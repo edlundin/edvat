@@ -255,6 +255,24 @@ func inspectCurrentMigrationState(ctx context.Context, engine baseatlas.BaseEngi
 	return current, nil
 }
 
+func filterManagedRuntimePermissions(state pgext.PermissionState) pgext.PermissionState {
+	if len(state) == 0 {
+		return state
+	}
+	out := pgext.PermissionState{}
+	for id, permission := range state {
+		if strings.HasPrefix(permission.Target, "DATABASE ") && isManagedRuntimeRole(permission.Grantee) {
+			continue
+		}
+		out[id] = permission
+	}
+	return out
+}
+
+func isManagedRuntimeRole(role string) bool {
+	return role == "encore_services" || strings.HasPrefix(role, "encore-")
+}
+
 func appendPgExtStatements(statements []baseatlas.Statement, current migrationState, desired migrationState, includeRoles, includeUsers bool) []baseatlas.Statement {
 	statements = mergeExtensionStatements(statements, pgext.Diff(current.Extensions, desired.Extensions))
 	statements = append(statements, pgext.DiffDomains(current.Domains, desired.Domains)...)
@@ -271,7 +289,7 @@ func appendPgExtStatements(statements []baseatlas.Statement, current migrationSt
 	statements = append(statements, pgext.DiffTriggers(current.Triggers, desired.Triggers)...)
 	statements = append(statements, pgext.DiffEventTriggers(current.EventTriggers, desired.EventTriggers)...)
 	statements = append(statements, pgext.DiffPolicies(current.Policies, desired.Policies)...)
-	statements = append(statements, pgext.DiffPermissions(current.Permissions, desired.Permissions)...)
+	statements = append(statements, pgext.DiffPermissions(filterManagedRuntimePermissions(current.Permissions), desired.Permissions)...)
 	statements = append(statements, pgext.DiffDefaultPermissions(current.DefaultPermissions, desired.DefaultPermissions)...)
 	statements = append(statements, pgext.DiffServers(current.Servers, desired.Servers)...)
 	statements = append(statements, pgext.DiffForeignTables(current.ForeignTables, desired.ForeignTables)...)

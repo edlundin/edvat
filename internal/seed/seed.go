@@ -88,11 +88,14 @@ func Plan(ctx context.Context, cfg PlanConfig) ([]baseatlas.Statement, error) {
 
 func sqlForMode(ctx context.Context, mode Mode, data DataSet, desired *schema.Realm, currentRows CurrentRows) ([]string, error) {
 	keyColumns := seedKeyColumns(data, desired)
-	if mode == ModeSync && currentRows != nil {
+	if (mode == ModeUpsert || mode == ModeSync) && currentRows != nil {
 		columns := DiffColumns(data.Rows, keyColumns)
 		current, err := currentRows(ctx, data.Table, columns)
 		if err != nil {
 			return nil, err
+		}
+		if mode == ModeUpsert {
+			return UpsertDiffSQL(data.Table, current, data.Rows, keyColumns)
 		}
 		return DiffSQL(data.Table, current, data.Rows, keyColumns)
 	}
@@ -286,6 +289,35 @@ func InspectRows(ctx context.Context, db *sql.DB, table string, columns []string
 		return nil, fmt.Errorf("inspect seed rows for table %s: %w", table, err)
 	}
 	return out, nil
+}
+
+func UpsertDiffSQL(table string, currentRows, desiredRows []Row, keyColumns []string) ([]string, error) {
+	if table == "" {
+		return nil, fmt.Errorf("seed data requires table")
+	}
+	if len(keyColumns) == 0 {
+		return nil, fmt.Errorf("data for table %s requires a primary key or explicit seed key", table)
+	}
+	currentByKey := map[string]Row{}
+	for _, row := range currentRows {
+		currentByKey[rowKey(row, keyColumns)] = row
+	}
+	var statements []string
+	for _, desired := range desiredRows {
+		current, exists := currentByKey[rowKey(desired, keyColumns)]
+		if !exists {
+			insert, err := UpsertSQL(DataSet{Table: table, Rows: []Row{desired}}, keyColumns)
+			if err != nil {
+				return nil, err
+			}
+			statements = append(statements, insert...)
+			continue
+		}
+		if assignments := changedAssignments(current, desired, keyColumns); len(assignments) > 0 {
+			statements = append(statements, fmt.Sprintf("UPDATE %s SET %s WHERE %s", quoteIdent(table), strings.Join(assignments, ", "), keyPredicate(desired, keyColumns)))
+		}
+	}
+	return statements, nil
 }
 
 func DiffSQL(table string, currentRows, desiredRows []Row, keyColumns []string) ([]string, error) {

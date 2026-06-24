@@ -28,6 +28,78 @@ func TestLivePriorityMigrationRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLiveMigrateDiffSkipsReplayWhenPublicOnlyHasEnumTypes(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	url := startTestPostgres(t, ctx, "postgres:16-alpine")
+	db, err := sql.Open("postgres", url)
+	if err != nil {
+		t.Fatalf("open postgres: %v", err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(ctx, `CREATE TYPE "public"."organization_statuses" AS ENUM('VALID', 'INVALID');`); err != nil {
+		t.Fatalf("seed enum: %v", err)
+	}
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "atlas.hcl")
+	writeTestFile(t, configPath, `
+env "local" {
+  schema { src = "schema.pg.hcl" }
+  migration { dir = "migrations" }
+}
+`)
+	writeTestFile(t, filepath.Join(dir, "schema.pg.hcl"), `schema "public" {}
+
+enum "organization_statuses" {
+  schema = schema.public
+  values = ["VALID", "INVALID"]
+}
+`)
+	if err := os.Mkdir(filepath.Join(dir, "migrations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(dir, "migrations", "20240101000000_init.up.sql"), `CREATE TYPE "public"."organization_statuses" AS ENUM('VALID', 'INVALID');`)
+
+	if err := migrateDiff([]string{"should_not_write", "--config", configPath, "--env", "local", "--dev-url", url}); err != nil {
+		t.Fatalf("migrateDiff() error = %v", err)
+	}
+}
+
+func TestLiveMigrateDiffReplaysIntoEmptyDatabase(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	url := startTestPostgres(t, ctx, "postgres:16-alpine")
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "atlas.hcl")
+	writeTestFile(t, configPath, `
+env "local" {
+  schema { src = "schema.pg.hcl" }
+  migration { dir = "migrations" }
+}
+`)
+	writeTestFile(t, filepath.Join(dir, "schema.pg.hcl"), `schema "public" {}
+
+table "users" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = int
+  }
+  primary_key { columns = [column.id] }
+}
+`)
+	if err := os.Mkdir(filepath.Join(dir, "migrations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(dir, "migrations", "20240101000000_init.up.sql"), `CREATE TABLE "public"."users" ("id" integer NOT NULL, PRIMARY KEY ("id"));`)
+
+	if err := migrateDiff([]string{"should_not_write", "--config", configPath, "--env", "local", "--dev-url", url}); err != nil {
+		t.Fatalf("migrateDiff() error = %v", err)
+	}
+}
+
 func TestLivePostgresImagesDefaultAndOverride(t *testing.T) {
 	t.Setenv("EDVAT_TEST_DATABASE_URL", "")
 	t.Setenv("EDVAT_TEST_POSTGRES_IMAGES", "")
