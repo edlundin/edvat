@@ -38,7 +38,7 @@ func TestReplayAppliesSQLFilesInNameOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Replay() error = %v", err)
 	}
-	wantStatements := []string{"SELECT 1;", "SELECT 2;"}
+	wantStatements := []string{"SELECT 1", "SELECT 2"}
 	if !reflect.DeepEqual(exec.statements, wantStatements) {
 		t.Fatalf("statements = %#v, want %#v", exec.statements, wantStatements)
 	}
@@ -58,7 +58,7 @@ CREATE EXTENSION "pgcrypto" WITH SCHEMA "public";`)
 		t.Fatalf("Replay() error = %v", err)
 	}
 	want := `CREATE SCHEMA IF NOT EXISTS "public";
-CREATE EXTENSION "pgcrypto" WITH SCHEMA "public";`
+CREATE EXTENSION "pgcrypto" WITH SCHEMA "public"`
 	if len(exec.statements) != 1 || exec.statements[0] != want {
 		t.Fatalf("statement = %#v, want %#v", exec.statements, want)
 	}
