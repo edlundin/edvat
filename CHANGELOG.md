@@ -1,5 +1,9 @@
 # Changelog
 
+## 2026-10-12
+
+- **chore:** Update Go dependencies and GitHub Actions; Atlas remains at v1.3.0. ([pending](pending))
+
 ## 2026-09-01
 
 - **test:** Align migration replay assertions with normalized SQL output. ([pending](pending))
