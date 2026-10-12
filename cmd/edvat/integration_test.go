@@ -275,7 +275,7 @@ trigger "users_touch" {
 		}
 		t.Fatalf("second migrateDiff() error = %v; inspected policies = %#v; inspected triggers = %#v", err, policies, triggers)
 	}
-	secondSQL := readLatestMigrationSQL(t, filepath.Join(dir, "migrations"))
+	secondSQL := readOptionalMigrationSQLByName(t, filepath.Join(dir, "migrations"), "priority_round_trip_empty")
 	if strings.TrimSpace(secondSQL) != "" {
 		views, inspectErr := pgext.InspectViews(ctx, db)
 		if inspectErr != nil {
@@ -381,7 +381,7 @@ partition "events_tenant_0" {
 		}
 		t.Fatalf("second migrateDiff() error = %v; inspected partitions = %#v", err, partitions)
 	}
-	secondSQL := readLatestMigrationSQL(t, filepath.Join(dir, "migrations"))
+	secondSQL := readOptionalMigrationSQLByName(t, filepath.Join(dir, "migrations"), "partition_variants_round_trip_empty")
 	if strings.TrimSpace(secondSQL) != "" {
 		partitions, inspectErr := pgext.InspectPartitions(ctx, db)
 		if inspectErr != nil {
@@ -465,7 +465,7 @@ partition "events_2025" {
 		}
 		t.Fatalf("second migrateDiff() error = %v; inspected partitions = %#v", err, partitions)
 	}
-	secondSQL := readLatestMigrationSQL(t, filepath.Join(dir, "migrations"))
+	secondSQL := readOptionalMigrationSQLByName(t, filepath.Join(dir, "migrations"), "partition_round_trip_empty")
 	if strings.TrimSpace(secondSQL) != "" {
 		partitions, inspectErr := pgext.InspectPartitions(ctx, db)
 		if inspectErr != nil {
@@ -548,7 +548,7 @@ table "reservations" {
 		}
 		t.Fatalf("second migrateDiff() error = %v; inspected exclusions = %#v", err, exclusions)
 	}
-	secondSQL := readLatestMigrationSQL(t, filepath.Join(dir, "migrations"))
+	secondSQL := readOptionalMigrationSQLByName(t, filepath.Join(dir, "migrations"), "exclusion_round_trip_empty")
 	if strings.TrimSpace(secondSQL) != "" {
 		exclusions, inspectErr := pgext.InspectExclusions(ctx, db)
 		if inspectErr != nil {
@@ -729,7 +729,7 @@ default_permission "reader_use_types" {
 		}
 		t.Fatalf("second migrateDiff() error = %v; inspected default permissions = %#v", err, defaultPermissions)
 	}
-	secondSQL := readLatestMigrationSQL(t, filepath.Join(dir, "migrations"))
+	secondSQL := readOptionalMigrationSQLByName(t, filepath.Join(dir, "migrations"), "default_permission_round_trip_empty")
 	if strings.TrimSpace(secondSQL) != "" {
 		defaultPermissions, inspectErr := pgext.InspectDefaultPermissions(ctx, db)
 		if inspectErr != nil {
@@ -850,7 +850,7 @@ permission "database_connect" {
 		}
 		t.Fatalf("second migrateDiff() error = %v; inspected permissions = %#v", err, permissions)
 	}
-	secondSQL := readLatestMigrationSQL(t, filepath.Join(dir, "migrations"))
+	secondSQL := readOptionalMigrationSQLByName(t, filepath.Join(dir, "migrations"), "permission_extended_acl_round_trip_empty")
 	if strings.Contains(secondSQL, "GRANT ") || strings.Contains(secondSQL, "REVOKE ") {
 		t.Fatalf("second generated migration contains permission churn after extended ACL round trip: %q", secondSQL)
 	}
@@ -921,7 +921,7 @@ permission "server_usage" {
 		}
 		t.Fatalf("second migrateDiff() error = %v; inspected permissions = %#v", err, permissions)
 	}
-	secondSQL := readLatestMigrationSQL(t, filepath.Join(dir, "migrations"))
+	secondSQL := readOptionalMigrationSQLByName(t, filepath.Join(dir, "migrations"), "foreign_server_permission_round_trip_empty")
 	if strings.Contains(secondSQL, "GRANT ") || strings.Contains(secondSQL, "REVOKE ") {
 		t.Fatalf("second generated migration contains foreign-server permission churn: %q", secondSQL)
 	}
@@ -996,7 +996,7 @@ permission "grantable_read_reports" {
 		}
 		t.Fatalf("second migrateDiff() error = %v; inspected permissions = %#v", err, permissions)
 	}
-	secondSQL := readLatestMigrationSQL(t, filepath.Join(dir, "migrations"))
+	secondSQL := readOptionalMigrationSQLByName(t, filepath.Join(dir, "migrations"), "grant_option_round_trip_empty")
 	if strings.TrimSpace(secondSQL) != "" {
 		t.Fatalf("second generated migration = %q, want empty after grant option round trip", secondSQL)
 	}
@@ -1085,26 +1085,23 @@ func readMigrationSQLByName(t *testing.T, dir, name string) string {
 	return ""
 }
 
-func readLatestMigrationSQL(t *testing.T, dir string) string {
+func readOptionalMigrationSQLByName(t *testing.T, dir, name string) string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read migrations: %v", err)
 	}
-	var latest string
 	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".up.sql") && entry.Name() > latest {
-			latest = entry.Name()
+		if strings.HasSuffix(entry.Name(), "_"+name+".up.sql") {
+			body, err := os.ReadFile(filepath.Join(dir, entry.Name()))
+			if err != nil {
+				t.Fatalf("read migration sql: %v", err)
+			}
+			return string(body)
 		}
 	}
-	if latest == "" {
-		t.Fatal("no generated migration sql")
-	}
-	body, err := os.ReadFile(filepath.Join(dir, latest))
-	if err != nil {
-		t.Fatalf("read latest migration sql: %v", err)
-	}
-	return string(body)
+	// A no-op diff writes no migration file.
+	return ""
 }
 
 func applySQLStatements(t *testing.T, ctx context.Context, db *sql.DB, sqlText string) {

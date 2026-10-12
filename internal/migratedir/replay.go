@@ -302,6 +302,8 @@ func hasUserObjects(ctx context.Context, db Queryer) (bool, error) {
 	var count int
 	err := db.QueryRowContext(ctx, `
 SELECT
+	(SELECT count(*) FROM pg_extension WHERE extname <> 'plpgsql') +
+	(SELECT count(*) FROM pg_foreign_server) +
 	(SELECT count(*) FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname <> 'information_schema' AND nspname <> 'public') +
 	(SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema' AND NOT (n.nspname = 'public' AND c.relname IN ('schema_migrations', 'atlas_schema_revisions'))) +
 	(SELECT count(*) FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace LEFT JOIN pg_class c ON c.oid = t.typrelid WHERE n.nspname NOT LIKE 'pg_%' AND n.nspname <> 'information_schema' AND (t.typtype IN ('e', 'd', 'r') OR (t.typtype = 'c' AND c.relkind = 'c')))`).Scan(&count)
