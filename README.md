@@ -60,6 +60,17 @@ env "local" {
 }
 ```
 
+Limit the diff to some schemas, or exclude objects with Atlas glob patterns (`river`, `river.*`, `public.some_table`, `river.*[type=function]`). Both apply to the dev database and to the HCL schemas:
+
+```hcl
+env "local" {
+  schemas = ["public"]
+  exclude = ["river"]
+  schema { src = "schemas" }
+  migration { dir = "migrations" }
+}
+```
+
 Seed data is optional:
 
 ```hcl
@@ -103,7 +114,7 @@ edvat migrate diff add_users \
   --dev-url "postgres://postgres:pass@localhost:5432/app?sslmode=disable&search_path=public"
 ```
 
-Destructive statements fail by default. Allow them only after review:
+Destructive statements, including any `DROP` or `REVOKE`, fail by default. Allow them only after review:
 
 ```sh
 edvat migrate diff drop_old_column --env local --config atlas.hcl --allow-destructive

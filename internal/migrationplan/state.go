@@ -255,6 +255,72 @@ func inspectCurrentMigrationState(ctx context.Context, engine baseatlas.BaseEngi
 	return current, nil
 }
 
+// scopeMigrationState drops schema-qualified pgext objects outside the env scope.
+// Realm-level families (extensions, casts, event triggers, servers, user
+// mappings, roles, users) are not schema-qualified and stay untouched.
+func scopeMigrationState(state migrationState, scope baseatlas.Scope) migrationState {
+	if len(scope.Schemas) == 0 && len(scope.Exclude) == 0 {
+		return state
+	}
+	state.Domains = keepInScope(state.Domains, func(o pgext.Domain) bool { return scope.Includes("domain", o.Schema, o.Name) })
+	state.Composites = keepInScope(state.Composites, func(o pgext.Composite) bool { return scope.Includes("composite", o.Schema, o.Name) })
+	state.Ranges = keepInScope(state.Ranges, func(o pgext.Range) bool { return scope.Includes("range", o.Schema, o.Name) })
+	state.Collations = keepInScope(state.Collations, func(o pgext.Collation) bool { return scope.Includes("collation", o.Schema, o.Name) })
+	state.Sequences = keepInScope(state.Sequences, func(o pgext.Sequence) bool { return scope.Includes("sequence", o.Schema, o.Name) })
+	state.Partitions = keepInScope(state.Partitions, func(o pgext.Partition) bool { return scope.Includes("partition", o.Schema, o.Name) })
+	state.Exclusions = keepInScope(state.Exclusions, func(o pgext.ExclusionConstraint) bool {
+		return scope.Includes("exclude", o.Schema, o.Table, o.Name)
+	})
+	state.Views = keepInScope(state.Views, func(o pgext.View) bool { return scope.Includes("view", o.Schema, o.Name) })
+	state.MaterializedViews = keepInScope(state.MaterializedViews, func(o pgext.MaterializedView) bool {
+		return scope.Includes("materialized", o.Schema, o.Name)
+	})
+	state.Functions = keepInScope(state.Functions, func(o pgext.Function) bool { return scope.Includes("function", o.Schema, o.Name) })
+	state.Procedures = keepInScope(state.Procedures, func(o pgext.Procedure) bool { return scope.Includes("procedure", o.Schema, o.Name) })
+	state.Aggregates = keepInScope(state.Aggregates, func(o pgext.Aggregate) bool { return scope.Includes("aggregate", o.Schema, o.Name) })
+	state.Triggers = keepInScope(state.Triggers, func(o pgext.Trigger) bool { return scope.Includes("trigger", o.Schema, o.Table, o.Name) })
+	state.Policies = keepInScope(state.Policies, func(o pgext.Policy) bool { return scope.Includes("policy", o.Schema, o.Table, o.Name) })
+	state.Permissions = keepInScope(state.Permissions, func(o pgext.Permission) bool {
+		schemaName, path := permissionTargetPath(o.Target)
+		return scope.Includes("permission", schemaName, path...)
+	})
+	state.DefaultPermissions = keepInScope(state.DefaultPermissions, func(o pgext.DefaultPermission) bool {
+		return scope.Includes("default_permission", o.Schema)
+	})
+	state.ForeignTables = keepInScope(state.ForeignTables, func(o pgext.ForeignTable) bool {
+		return scope.Includes("foreign_table", o.Schema, o.Name)
+	})
+	return state
+}
+
+func keepInScope[S ~map[string]V, V any](state S, keep func(V) bool) S {
+	for id, object := range state {
+		if !keep(object) {
+			delete(state, id)
+		}
+	}
+	return state
+}
+
+// permissionTargetPath extracts the schema and object name from targets such as
+// `TABLE "river"."river_job"`, `FUNCTION "river"."f"(bit)` or `SCHEMA "river"`.
+// Database and foreign server targets have no schema.
+func permissionTargetPath(target string) (string, []string) {
+	kind, rest, ok := strings.Cut(target, ` "`)
+	if !ok || kind == "DATABASE" || kind == "FOREIGN SERVER" {
+		return "", nil
+	}
+	first, rest, _ := strings.Cut(rest, `"`)
+	if kind == "SCHEMA" {
+		return first, nil
+	}
+	if !strings.HasPrefix(rest, `."`) {
+		return "", nil
+	}
+	name, _, _ := strings.Cut(rest[2:], `"`)
+	return first, []string{name}
+}
+
 func filterManagedRuntimePermissions(state pgext.PermissionState) pgext.PermissionState {
 	if len(state) == 0 {
 		return state
