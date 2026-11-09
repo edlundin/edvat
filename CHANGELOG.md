@@ -4,6 +4,7 @@
 
 - **fix:** Honour `schemas` and `exclude` in `env` blocks when inspecting and diffing the dev database and HCL schemas. ([pending](pending))
 - **fix:** Fail on destructive statements such as `DROP SCHEMA ... CASCADE` unless `--allow-destructive` is set. ([pending](pending))
+- **chore:** Update Go dependencies, including Testcontainers v0.45.0 and go-cty v1.20.0; Atlas remains at v1.3.0, the latest release. ([pending](pending))
 
 ## 2026-10-12
 
