@@ -41,10 +41,12 @@ func (e DestructiveError) Error() string {
 
 func Build(ctx context.Context, cfg project.EnvConfig, opts Options) (Plan, error) {
 	engine := baseatlas.New()
+	engine.Scope = baseatlas.Scope{Schemas: cfg.Schemas, Exclude: cfg.Exclude}
 	desiredState, err := loadDesiredMigrationState(ctx, engine, cfg.SchemaPaths)
 	if err != nil {
 		return Plan{}, err
 	}
+	desiredState = scopeMigrationState(desiredState, engine.Scope)
 	if len(desiredState.Roles) > 0 && !opts.ManageRoles {
 		return Plan{}, fmt.Errorf("role blocks require --manage-roles")
 	}
@@ -58,6 +60,7 @@ func Build(ctx context.Context, cfg project.EnvConfig, opts Options) (Plan, erro
 		if err != nil {
 			return Plan{}, err
 		}
+		currentState = scopeMigrationState(currentState, engine.Scope)
 	}
 	changes, err := engine.Diff(ctx, currentState.Realm, desiredState.Realm)
 	if err != nil {
@@ -79,5 +82,8 @@ func Build(ctx context.Context, cfg project.EnvConfig, opts Options) (Plan, erro
 	statements = orderMigrationStatements(statements)
 
 	findings := destructiveFindings(statements)
+	if len(findings) > 0 && !opts.AllowDestructive {
+		return Plan{}, DestructiveError{Findings: findings}
+	}
 	return Plan{Statements: statements, Findings: findings}, nil
 }

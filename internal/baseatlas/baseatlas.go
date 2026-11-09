@@ -44,6 +44,8 @@ type Engine struct {
 	Differ    schema.Differ
 	Planner   migrate.PlanApplier
 	Inspector CurrentInspector
+	// Scope applies to both the desired and the current realm.
+	Scope Scope
 }
 
 func New() *Engine {
@@ -80,7 +82,14 @@ func (e *Engine) LoadDesired(ctx context.Context, cfg ProjectConfig) (*schema.Re
 		return nil, fmt.Errorf("evaluate postgres hcl: %w", err)
 	}
 	normalizePublicSchema(&desired)
-	return &desired, nil
+	return e.scope().Realm(&desired)
+}
+
+func (e *Engine) scope() Scope {
+	if e == nil {
+		return Scope{}
+	}
+	return e.Scope
 }
 
 func (e *Engine) InspectCurrent(ctx context.Context, url string) (*schema.Realm, error) {
@@ -88,15 +97,19 @@ func (e *Engine) InspectCurrent(ctx context.Context, url string) (*schema.Realm,
 		return nil, err
 	}
 	if e != nil && e.Inspector != nil {
-		return e.Inspector(ctx, url)
+		realm, err := e.Inspector(ctx, url)
+		if err != nil {
+			return nil, err
+		}
+		return e.scope().Realm(realm)
 	}
 	if strings.TrimSpace(url) == "" {
 		return nil, ErrInspectUnavailable
 	}
-	return InspectURL(ctx, url)
+	return InspectURL(ctx, url, e.scope())
 }
 
-func InspectURL(ctx context.Context, url string) (*schema.Realm, error) {
+func InspectURL(ctx context.Context, url string, scope Scope) (*schema.Realm, error) {
 	client, err := sqlclient.Open(ctx, url)
 	if err != nil {
 		return nil, fmt.Errorf("open postgres atlas client: %w", err)
@@ -106,7 +119,7 @@ func InspectURL(ctx context.Context, url string) (*schema.Realm, error) {
 	if !ok {
 		return nil, fmt.Errorf("postgres atlas driver does not inspect realms")
 	}
-	realm, err := inspector.InspectRealm(ctx, nil)
+	realm, err := inspector.InspectRealm(ctx, scope.inspectOption())
 	if err != nil {
 		return nil, fmt.Errorf("inspect current realm: %w", err)
 	}

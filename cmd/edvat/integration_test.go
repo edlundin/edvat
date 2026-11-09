@@ -100,6 +100,81 @@ table "users" {
 	}
 }
 
+func TestLiveMigrateDiffScopesEnvSchemasAndExclude(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	url := startTestPostgres(t, ctx, "postgres:16-alpine")
+
+	// Mirrors a River job-queue migration living next to application tables.
+	const initSQL = `CREATE TABLE "public"."users" ("id" integer NOT NULL, PRIMARY KEY ("id"));
+CREATE SCHEMA "river";
+CREATE TYPE "river"."river_job_state" AS ENUM ('available', 'running');
+CREATE TABLE "river"."river_job" ("id" bigint NOT NULL, "state" "river"."river_job_state" NOT NULL, PRIMARY KEY ("id"));
+CREATE SEQUENCE "river"."river_job_id_seq";
+CREATE FUNCTION "river"."river_job_state_in_bitmask"(bitmask bit(8), state "river"."river_job_state") RETURNS boolean LANGUAGE sql IMMUTABLE AS $$ SELECT true $$;`
+	const schemaHCL = `schema "public" {}
+
+table "users" {
+  schema = schema.public
+  column "id" {
+    null = false
+    type = int
+  }
+  primary_key { columns = [column.id] }
+}
+`
+	cases := []struct {
+		name    string
+		attrs   string
+		wantErr string
+	}{
+		{name: "unscoped", wantErr: `DROP SCHEMA "river" CASCADE`},
+		{name: "schemas", attrs: `schemas = ["public"]`},
+		{name: "exclude", attrs: `exclude = ["river"]`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			configPath := filepath.Join(dir, "atlas.hcl")
+			writeTestFile(t, configPath, `
+env "local" {
+  `+tc.attrs+`
+  schema { src = "schemas" }
+  migration { dir = "migrations" }
+  data { mode = UPSERT }
+}
+`)
+			for _, sub := range []string{"schemas", "migrations"} {
+				if err := os.Mkdir(filepath.Join(dir, sub), 0o755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			writeTestFile(t, filepath.Join(dir, "schemas", "public.pg.hcl"), schemaHCL)
+			writeTestFile(t, filepath.Join(dir, "migrations", "20240101000000_init.up.sql"), initSQL)
+
+			err := migrateDiff([]string{"scoped", "--config", configPath, "--env", "local", "--dev-url", url})
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("migrateDiff() error = %v, want destructive error containing %q; generated:\n%s", err, tc.wantErr, readOptionalMigrationSQLByName(t, filepath.Join(dir, "migrations"), "scoped"))
+				}
+				if err := migrateDiff([]string{"scoped", "--config", configPath, "--env", "local", "--dev-url", url, "--allow-destructive"}); err != nil {
+					t.Fatalf("migrateDiff(--allow-destructive) error = %v", err)
+				}
+				if got := readOptionalMigrationSQLByName(t, filepath.Join(dir, "migrations"), "scoped"); !strings.Contains(got, tc.wantErr) {
+					t.Fatalf("migrateDiff(--allow-destructive) wrote:\n%s\nwant %q", got, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("migrateDiff() error = %v", err)
+			}
+			if got := readOptionalMigrationSQLByName(t, filepath.Join(dir, "migrations"), "scoped"); got != "" {
+				t.Fatalf("migrateDiff() wrote changes, want none:\n%s", got)
+			}
+		})
+	}
+}
+
 func TestLivePostgresImagesDefaultAndOverride(t *testing.T) {
 	t.Setenv("EDVAT_TEST_DATABASE_URL", "")
 	t.Setenv("EDVAT_TEST_POSTGRES_IMAGES", "")

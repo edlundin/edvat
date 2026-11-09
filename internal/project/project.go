@@ -23,8 +23,12 @@ type EnvConfig struct {
 	Name         string
 	SchemaPaths  []string
 	MigrationDir string
-	SeedMode     seed.Mode
-	SeedPaths    []string
+	// Schemas and Exclude follow Atlas env semantics: Schemas limits the
+	// diff to the listed schemas, Exclude drops matching glob patterns.
+	Schemas   []string
+	Exclude   []string
+	SeedMode  seed.Mode
+	SeedPaths []string
 }
 
 type hclSchemaSource struct {
@@ -107,6 +111,17 @@ func loadEnvBlock(block *hclsyntax.Block, baseDir string, sources map[string]hcl
 			return EnvConfig{}, fmt.Errorf("decode env.%s.src: %w", block.Labels[0], err)
 		}
 		cfg.SchemaPaths = append(cfg.SchemaPaths, paths...)
+	}
+	for name, target := range map[string]*[]string{"schemas": &cfg.Schemas, "exclude": &cfg.Exclude} {
+		attr, ok := block.Body.Attributes[name]
+		if !ok {
+			continue
+		}
+		values, err := stringListExpr(attr.Expr)
+		if err != nil {
+			return EnvConfig{}, fmt.Errorf("decode env.%s.%s: %w", block.Labels[0], name, err)
+		}
+		*target = values
 	}
 	for _, nested := range block.Body.Blocks {
 		switch nested.Type {
